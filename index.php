@@ -6,6 +6,43 @@ $pass = "Cyb3rS3c^r!tyPr0j3ct2026!";
 
 $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8", $user, $pass);
 
+// ==========================================
+// 1. IMAGE VIEWER MODE (Intercepts ?id=X requests)
+// ==========================================
+if (isset($_GET['id']) && !empty($_GET['id'])) {
+    $stmt = $pdo->prepare("SELECT filename FROM images WHERE id = ?");
+    $stmt->execute([$_GET['id']]);
+    $image = $stmt->fetch();
+
+    if ($image) {
+        $filePath = __DIR__ . '/uploads/' . $image['filename'];
+
+        if (file_exists($filePath)) {
+            $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+            $mimeTypes = [
+                'jpg'  => 'image/jpeg',
+                'jpeg' => 'image/jpeg',
+                'png'  => 'image/png',
+                'gif'  => 'image/gif',
+                'webp' => 'image/webp'
+            ];
+
+            $contentType = isset($mimeTypes[$ext]) ? $mimeTypes[$ext] : 'application/octet-stream';
+            
+            header("Content-Type: " . $contentType);
+            readfile($filePath);
+            exit; // Stops the rest of the file from rendering so no HTML corrupts the image data
+        }
+    }
+    
+    header("HTTP/1.0 404 Not Found");
+    echo "Image not found.";
+    exit;
+}
+
+// ==========================================
+// 2. FILE UPLOAD HANDLING (Intercepts POST requests)
+// ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $file = $_FILES['image'];
     $uploadsDir = __DIR__ . '/uploads/';
@@ -16,14 +53,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $pdo->prepare("INSERT INTO images (filename) VALUES (?)");
         $stmt->execute([$filename]);
 
-        // Redirect so a page refresh doesn't re-submit the form
-        header("Location: index.php?uploaded=" . urlencode($filename));
+        $lastId = $pdo->lastInsertId();
+
+        // Redirect back to this same file with the uploaded ID in the URL
+        header("Location: index.php?uploaded=" . urlencode($lastId));
         exit;
     } else {
         $error = "Upload failed. Make sure uploads/ exists and is writable (chmod 755).";
     }
 }
 
+// Fetch all entries for the gallery list
 $images = $pdo->query("SELECT * FROM images ORDER BY uploaded_at DESC")->fetchAll();
 ?>
 <!DOCTYPE html>
@@ -33,16 +73,20 @@ $images = $pdo->query("SELECT * FROM images ORDER BY uploaded_at DESC")->fetchAl
     <title>Upload Image</title>
     <style>
         body { font-family: sans-serif; max-width: 600px; margin: 40px auto; }
-        img { max-width: 200px; margin: 8px; border: 1px solid #ccc; }
         .success { color: green; }
         .error { color: red; }
+        .image-link { font-weight: bold; text-decoration: none; color: #0066cc; }
+        .image-link:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
     <h2>Upload Image</h2>
 
     <?php if (isset($_GET['uploaded'])): ?>
-        <p class="success">Uploaded: <?= htmlspecialchars($_GET['uploaded']) ?></p>
+        <p class="success">
+            Uploaded successfully! 
+            — <a class="image-link" href="index.php?id=<?= htmlspecialchars($_GET['uploaded']) ?>" target="_blank">View Image #<?= htmlspecialchars($_GET['uploaded']) ?></a>
+        </p>
     <?php endif; ?>
 
     <?php if (isset($error)): ?>
@@ -58,9 +102,11 @@ $images = $pdo->query("SELECT * FROM images ORDER BY uploaded_at DESC")->fetchAl
 
     <h3>Uploaded images</h3>
     <?php foreach ($images as $img): ?>
-        <div>
-            <img src="uploads/<?= htmlspecialchars($img['filename']) ?>" alt="<?= htmlspecialchars($img['filename']) ?>">
-            <p><?= htmlspecialchars($img['filename']) ?> — <?= $img['uploaded_at'] ?></p>
+        <div style="margin-bottom: 10px;">
+            <a class="image-link" href="index.php?id=<?= htmlspecialchars($img['id']) ?>" target="_blank">
+                Image #<?= htmlspecialchars($img['id']) ?>
+            </a> 
+            — Uploaded at: <?= $img['uploaded_at'] ?>
         </div>
     <?php endforeach; ?>
 </body>
